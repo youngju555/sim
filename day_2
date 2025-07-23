@@ -1,0 +1,292 @@
+# <아두이노 기반 라인트레이싱 로봇을 제어하기 위한 프로그램>
+
+# 흰색 바탕에 검은 선이 그려진 길을 따라가는 로봇을 만들기 위한 코드.
+
+# 좌우의 IR 센서(적외선 센서)로 선을 감지하고,
+
+# 모터를 제어해서 로봇이 직진, 좌회전, 우회전, 정지를 하도록 함.
+
+# 엔코더로 바퀴 회전 수를 측정하여 추후에 거리 측정도 가능함.
+
+# <동작 방식 요약>
+# IR 센서로 선(검정색)을 감지: LEFT_SENSOR, RIGHT_SENSOR는 흰색에서 0, 검은색에서 1을 출력
+
+# 센서 판별에 따라 모터 제어:
+# 둘 다 흰색(0) → 직진
+# 왼쪽만 검정(1) → 좌회전
+# 오른쪽만 검정(1) → 우회전
+# 둘 다 검정(1) → 정지
+
+# 모터 PWM 신호 제어:
+
+# analogWrite()로 바퀴 속도 조절 (왼쪽/오른쪽 속도 조정 가능)
+# 엔코더로 바퀴 회전 수 카운트 (거리 측정용):
+# LEFT_ENCODER, RIGHT_ENCODER가 회전 시 인터럽트 발생
+
+# 시리얼 출력으로 상태 확인:
+# 센서 값, 엔코더 값 출력해서 디버깅 가능
+
+# 두 개의 IR 센서로 검정 라인을 감지해, 로봇을 선 위로 자동 주행시키는 프로그램.
+# 모터 속도를 조절해 바퀴 회전을 제어하고, 엔코더로 얼마나 갔는지도 측정할 수 있음.
+
+// ==============================
+// 핀 설정 (PWM 사용)
+// ==============================
+#define LEFT_SENSOR 4
+#define RIGHT_SENSOR 3
+#define M1_A 10  // 왼쪽 모터 A (PWM)
+#define M1_B 11  // 왼쪽 모터 B (PWM)
+#define M2_A 5   // 오른쪽 모터 A (PWM)
+#define M2_B 6   // 오른쪽 모터 B (PWM)
+#define LEFT_ENCODER 12
+#define RIGHT_ENCODER 13
+
+// ==============================
+// 전역 변수
+// ==============================
+volatile long leftEncoderCount = 0;
+volatile long rightEncoderCount = 0;
+
+// 개별 속도 설정 (왼쪽 바퀴가 더 세면 값을 낮춰줌)
+int leftSpeed = 60;    // 왼쪽 바퀴 속도 (조금 약하게)
+int rightSpeed = 75;   // 오른쪽 바퀴 속도
+
+// ==============================
+// 인터럽트 핸들러
+// ==============================
+void leftEncoderISR() {
+  leftEncoderCount++;
+}
+void rightEncoderISR() {
+  rightEncoderCount++;
+}
+
+// ==============================
+// 설정
+// ==============================
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(LEFT_SENSOR, INPUT);
+  pinMode(RIGHT_SENSOR, INPUT);
+
+  pinMode(M1_A, OUTPUT);
+  pinMode(M1_B, OUTPUT);
+  pinMode(M2_A, OUTPUT);
+  pinMode(M2_B, OUTPUT);
+
+  pinMode(LEFT_ENCODER, INPUT);
+  pinMode(RIGHT_ENCODER, INPUT);
+
+  attachInterrupt(digitalPinToInterrupt(LEFT_ENCODER), leftEncoderISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(RIGHT_ENCODER), rightEncoderISR, RISING);
+}
+
+// ==============================
+// 모터 제어 함수
+// ==============================
+void goForward() {
+  analogWrite(M1_A, 0);
+  analogWrite(M1_B, leftSpeed);
+  analogWrite(M2_A, 0);
+  analogWrite(M2_B, rightSpeed);
+}
+
+void turnLeft() {
+  analogWrite(M1_A, 0);
+  analogWrite(M1_B, 0);  // 왼쪽 정지
+  analogWrite(M2_A, 0);
+  analogWrite(M2_B, rightSpeed);  // 오른쪽 전진
+}
+
+void turnRight() {
+  analogWrite(M2_A, 0);
+  analogWrite(M2_B, 0);  // 오른쪽 정지
+  analogWrite(M1_A, 0);
+  analogWrite(M1_B, leftSpeed);  // 왼쪽 전진
+}
+
+void stopMotors() {
+  analogWrite(M1_A, 0);
+  analogWrite(M1_B, 0);
+  analogWrite(M2_A, 0);
+  analogWrite(M2_B, 0);
+}
+
+// ==============================
+// 루프
+// ==============================
+void loop() {
+  int left = digitalRead(LEFT_SENSOR);
+  int right = digitalRead(RIGHT_SENSOR);
+
+  // 센서 및 엔코더 상태 출력
+  Serial.print("L_S: ");
+  Serial.print(left);
+  Serial.print(" | R_S: ");
+  Serial.print(right);
+  Serial.print(" | L_Enc: ");
+  Serial.print(leftEncoderCount);
+  Serial.print(" | R_Enc: ");
+  Serial.println(rightEncoderCount);
+
+  // 라인트레이싱 로직
+  if (left == 0 && right == 0) {
+    goForward();
+  } else if (left == 1 && right == 0) {
+    turnLeft();
+  } else if (left == 0 && right == 1) {
+    turnRight();
+  } else {
+    stopMotors();
+  }
+
+  delay(50);  // 너무 빠른 반응 방지
+}
+
+
+# 수정사항
+# 자동 속도 보정+ 정밀도
+
+// ==============================
+// 핀 설정
+// ==============================
+#define LEFT_SENSOR 9    // IR 센서 (왼쪽)
+#define RIGHT_SENSOR 4   // IR 센서 (오른쪽)
+#define M1_A 5           // 왼쪽 모터 IN1 (PWM)
+#define M1_B 6           // 왼쪽 모터 IN2 (PWM)
+#define M2_A 10          // 오른쪽 모터 IN3 (PWM)
+#define M2_B 11          // 오른쪽 모터 IN4 (PWM)
+#define LEFT_ENCODER 2   // 왼쪽 엔코더 (인터럽트 0)
+#define RIGHT_ENCODER 3  // 오른쪽 엔코더 (인터럽트 1)
+
+// ==============================
+// 전역 변수
+// ==============================
+volatile long leftEncoderCount = 0;
+volatile long rightEncoderCount = 0;
+int baseSpeed = 90;  // 기준 속도
+
+// ==============================
+// 인터럽트 핸들러
+// ==============================
+void leftEncoderISR() {
+  leftEncoderCount++;
+}
+void rightEncoderISR() {
+  rightEncoderCount++;
+}
+
+// ==============================
+// 모터 제어 함수
+// ==============================
+void stopMotors() {
+  analogWrite(M1_A, 0);
+  analogWrite(M1_B, 0);
+  analogWrite(M2_A, 0);
+  analogWrite(M2_B, 0);
+}
+
+void turnLeft() {
+  analogWrite(M1_A, 0);
+  analogWrite(M1_B, 0);               // 왼쪽 멈춤
+  analogWrite(M2_A, 0);
+  analogWrite(M2_B, baseSpeed);       // 오른쪽만 전진
+}
+
+void turnRight() {
+  analogWrite(M1_A, 0);
+  analogWrite(M1_B, baseSpeed);       // 왼쪽만 전진
+  analogWrite(M2_A, 0);
+  analogWrite(M2_B, 0);               // 오른쪽 멈춤
+}
+
+// ==============================
+// 설정
+// ==============================
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(LEFT_SENSOR, INPUT);
+  pinMode(RIGHT_SENSOR, INPUT);
+  pinMode(M1_A, OUTPUT);
+  pinMode(M1_B, OUTPUT);
+  pinMode(M2_A, OUTPUT);
+  pinMode(M2_B, OUTPUT);
+  pinMode(LEFT_ENCODER, INPUT);
+  pinMode(RIGHT_ENCODER, INPUT);
+
+  attachInterrupt(digitalPinToInterrupt(LEFT_ENCODER), leftEncoderISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(RIGHT_ENCODER), rightEncoderISR, RISING);
+}
+
+// ==============================
+// 루프
+// ==============================
+void loop() {
+  int left = digitalRead(LEFT_SENSOR);
+  int right = digitalRead(RIGHT_SENSOR);
+
+  // === 엔코더 차이 보정 ===
+  long diff = leftEncoderCount - rightEncoderCount;
+  diff = constrain(diff, -20, 20);  // 보정값 제한
+  int adjust = diff * 1;            // 보정 세기 조절
+
+  int leftSpeed = baseSpeed;
+  int rightSpeed = baseSpeed;
+
+  if (diff > 0) {
+    leftSpeed = baseSpeed - adjust;  // 왼쪽 감속
+  } else if (diff < 0) {
+    rightSpeed = baseSpeed + adjust; // 오른쪽 가속
+  }
+
+  leftSpeed = constrain(leftSpeed, 0, 255);
+  rightSpeed = constrain(rightSpeed, 0, 255);
+
+  // === 라인트레이싱 제어 ===
+  if (left == 0 && right == 0) {
+    // 둘 다 흰색일 때: 직진
+    analogWrite(M1_A, 0);
+    analogWrite(M1_B, leftSpeed);
+    analogWrite(M2_A, 0);
+    analogWrite(M2_B, rightSpeed);
+  } else if (left == 1 && right == 0) {
+    // 왼쪽이 검정: 왼쪽 회전
+    turnLeft();
+  } else if (left == 0 && right == 1) {
+    // 오른쪽이 검정: 오른쪽 회전
+    turnRight();
+  } else {
+    // 둘 다 검정: 정지
+    stopMotors();
+  }
+
+  // === 시리얼 출력 (디버깅용) ===
+  Serial.print("L_S: ");
+  Serial.print(left);
+  Serial.print(" | R_S: ");
+  Serial.print(right);
+  Serial.print(" | L_Enc: ");
+  Serial.print(leftEncoderCount);
+  Serial.print(" | R_Enc: ");
+  Serial.print(rightEncoderCount);
+  Serial.print(" | L_Spd: ");
+  Serial.print(leftSpeed);
+  Serial.print(" | R_Spd: ");
+  Serial.println(rightSpeed);
+
+  // === 엔코더 리셋 기능 (r 입력 시 리셋) ===
+  if (Serial.available()) {
+    char c = Serial.read();
+    if (c == 'r') {
+      leftEncoderCount = 0;
+      rightEncoderCount = 0;
+      Serial.println("Encoder reset.");
+    }
+  }
+
+  delay(50);
+}
+
+
