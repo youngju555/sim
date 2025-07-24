@@ -157,3 +157,80 @@ void countLeftEncoder() {
 void countRightEncoder() {
   countRight++;
 }
+
+esp용 코드
+#include <HardwareSerial.h>
+#include <ESP32Servo.h>
+
+// 핀 설정
+#define SERVO_PIN 18
+#define BUZZER_PIN 19
+#define ULTRASONIC_TRIG 5
+#define ULTRASONIC_ECHO 17
+
+// 서보
+Servo swatter;
+
+// 시리얼 통신용
+HardwareSerial ArduinoSerial(2); // UART2
+
+// 센서값
+int irLeft = 0;
+int irRight = 0;
+
+void setup() {
+  Serial.begin(9600);           // ESP32 디버깅용
+  ArduinoSerial.begin(9600, SERIAL_8N1, 16, 17); // RX=16, TX=17
+
+  // 서보 설정
+  swatter.setPeriodHertz(50);
+  swatter.attach(SERVO_PIN, 500, 2400);
+  swatter.write(90);  // 초기 위치
+
+  // 부저, 초음파 핀 설정
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(ULTRASONIC_TRIG, OUTPUT);
+  pinMode(ULTRASONIC_ECHO, INPUT);
+}
+
+void loop() {
+  // 📥 아두이노에서 IR 센서값 수신
+  if (ArduinoSerial.available()) {
+    String data = ArduinoSerial.readStringUntil('\n');
+    data.trim();
+
+    // 예시: "L1 R0" 형식이면
+    if (data.startsWith("L") && data.indexOf("R") > 0) {
+      irLeft = data.charAt(1) - '0';
+      irRight = data.charAt(data.indexOf("R") + 1) - '0';
+    }
+  }
+
+  // 👀 초음파 감지
+  int dist = getDistance();
+  if (dist > 0 && dist < 30) {
+    alertAndSwat();
+  }
+
+  delay(100);
+}
+
+int getDistance() {
+  digitalWrite(ULTRASONIC_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(ULTRASONIC_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ULTRASONIC_TRIG, LOW);
+
+  long duration = pulseIn(ULTRASONIC_ECHO, HIGH, 20000);
+  if (duration == 0) return -1;
+  return duration * 0.034 / 2;
+}
+
+void alertAndSwat() {
+  tone(BUZZER_PIN, 1000, 300);
+  swatter.write(0);
+  delay(300);
+  swatter.write(90);
+  delay(500);
+}
