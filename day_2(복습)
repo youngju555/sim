@@ -151,10 +151,10 @@ void loop() {
 // ==============================
 // 핀 설정
 // ==============================
-#define LEFT_SENSOR 9    // IR 센서 (왼쪽)
-#define RIGHT_SENSOR 4   // IR 센서 (오른쪽)
-#define M1_A 5           // 왼쪽 모터 IN1 (PWM)
-#define M1_B 6           // 왼쪽 모터 IN2 (PWM)
+#define LEFT_SENSOR 5    // IR 센서 (왼쪽)
+#define RIGHT_SENSOR 8   // IR 센서 (오른쪽)
+#define M1_A 6           // 왼쪽 모터 IN1 (PWM)
+#define M1_B 7           // 왼쪽 모터 IN2 (PWM)
 #define M2_A 10          // 오른쪽 모터 IN3 (PWM)
 #define M2_B 11          // 오른쪽 모터 IN4 (PWM)
 #define LEFT_ENCODER 2   // 왼쪽 엔코더 (인터럽트 0)
