@@ -1,6 +1,6 @@
 // 초음파 센서로 사람을 감지해서 부저를 울리고 서브 모터를 활용해 스틱을 달아서 스틱을 움직이며 타격하는 RC카 제작. 블루투스로 조종하며 RC카를 사람을 쫓아가며 타격하게 제작.
 
-#include <Servo.h>
+#include <ESP32Servo.h>  // Servo.h 대신 ESP32 전용 라이브러리
 
 // 핀 정의
 #define ENCODER_LEFT 2
@@ -36,8 +36,9 @@ void setup() {
   Serial.begin(9600);
 
   // 서보
-  swatter.attach(SERVO_PIN);
-  swatter.write(90); // 대기 자세
+  swatter.setPeriodHertz(50);                    // 서보용 PWM 주파수 설정
+  swatter.attach(SERVO_PIN, 500, 2400);          // attach(pin, minPulse, maxPulse)
+  swatter.write(90);                             // 대기 자세
 
   // 부저
   pinMode(BUZZER, OUTPUT);
@@ -90,9 +91,9 @@ int getDistance() {
 // 🔔 사람 감지 시 행동
 void alertAndSwat() {
   tone(BUZZER, 1000, 300); // 부저 울림
-  swatter.write(0); // 파리채 휘두르기
+  swatter.write(0);        // 파리채 휘두르기
   delay(300);
-  swatter.write(90); // 원위치
+  swatter.write(90);       // 원위치
   delay(500);
 }
 
