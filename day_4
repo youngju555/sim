@@ -1,0 +1,31 @@
+#전 날 제작한 RC카의 수정 완성본
+
+<esp 코드>
+#include "BluetoothSerial.h"
+BluetoothSerial SerialBT;
+#define ARDUINO_TX 17  // ESP32 → Arduino (TX)
+#define ARDUINO_RX 16  // ESP32 ← Arduino (RX)
+HardwareSerial ArduinoSerial(2); // Serial2
+void setup() {
+  Serial.begin(115200);
+  SerialBT.begin("ESP32_BT_Car"); // 블루투스 장치 이름
+  Serial.println("Bluetooth Started. Waiting for commands...");
+  // Serial2 초기화: TX, RX 핀, Baudrate
+  ArduinoSerial.begin(9600, SERIAL_8N1, ARDUINO_RX, ARDUINO_TX);
+}
+void loop() {
+  // 스마트폰 → ESP32
+  if (SerialBT.available()) {
+    char cmd = SerialBT.read();
+    Serial.print("BT Command: ");
+    Serial.println(cmd);
+    // ESP32 → Arduino 전달
+    ArduinoSerial.write(cmd);
+  }
+  // Arduino → ESP32로 오는 데이터도 (디버깅용으로)
+  if (ArduinoSerial.available()) {
+    char c = ArduinoSerial.read();
+    Serial.print("Arduino says: ");
+    Serial.println(c);
+  }
+}
