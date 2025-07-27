@@ -1,0 +1,32 @@
+list_one = []
+
+while True:
+    num = input('숫자를 입력하세요(q를 누르면 종료합니다): ')
+    if num == 'q':
+        print('사용을 종료합니다.')
+        break
+    try:
+        number = int(num)
+        list_one.append(number)
+    except ValueError:
+        print('잘못된 입력입니다.')
+
+print("입력된 숫자 리스트:", list_one)
+
+# 등장 횟수 세기
+freq = {}
+for n in list_one:
+    if n in freq:
+        freq[n] += 1
+    else:
+        freq[n] = 1
+
+# 가장 많이 나온 숫자 찾기
+most = None
+max_count = 0
+for n, count in freq.items():
+    if count > max_count:
+        most = n
+        max_count = count
+
+print(f"가장 많이 나온 숫자: {most} (총 {max_count}번)")
