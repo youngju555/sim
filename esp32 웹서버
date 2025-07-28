@@ -1,0 +1,87 @@
+// esp32로 웹서버를 만들어서 와이파이 연결해 버튼으로 조작.
+
+#include <WiFi.h>
+#include <WebServer.h>
+
+// 📡 WiFi 정보
+const char* ssid = "ConnectValue_A402_2G";
+const char* password = "CVA402!@#$";
+
+// 💻 웹서버 포트 80
+WebServer server(80);
+
+// 📡 아두이노와 연결된 시리얼 포트 설정
+#define ARDUINO_TX 17
+#define ARDUINO_RX 16
+HardwareSerial ArduinoSerial(2); // UART2 사용 (Serial2)
+
+// 🟢 HTML 버튼 페이지 생성
+String getHTML() {
+  String html = "<html><head><meta charset='utf-8'>";
+  html += "<style>";
+  html += "body { font-family: Arial; text-align: center; margin-top: 50px; }";
+  html += "button { font-size: 24px; padding: 20px 40px; margin: 10px; }";
+  html += "</style></head><body>";
+  html += "<h2>ESP32 RC카 제어</h2>";
+  html += "<a href='/F'><button>전진</button></a><br>";
+  html += "<a href='/B'><button>후진</button></a><br>";
+  html += "<a href='/L'><button>좌회전</button></a><br>";
+  html += "<a href='/R'><button>우회전</button></a><br>";
+  html += "<a href='/S'><button>정지</button></a><br>";
+  html += "</body></html>";
+  return html;
+}
+
+
+void setup() {
+  Serial.begin(115200); // 디버그용 시리얼
+  ArduinoSerial.begin(9600, SERIAL_8N1, ARDUINO_RX, ARDUINO_TX); // 아두이노와 통신
+
+  // WiFi 연결
+  WiFi.begin(ssid, password);
+  Serial.print("WiFi 연결 중");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi 연결 완료!");
+  Serial.print("웹서버 주소: http://");
+  Serial.println(WiFi.localIP());
+
+  // 웹서버 경로 설정
+  server.on("/", []() {
+    server.send(200, "text/html", getHTML());
+  });
+
+  server.on("/F", []() {
+    ArduinoSerial.write('F');
+    server.send(200, "text/html", "<p>전진</p><a href='/'>뒤로</a>");
+  });
+
+  server.on("/B", []() {
+    ArduinoSerial.write('B');
+    server.send(200, "text/html", "<p>후진</p><a href='/'>뒤로</a>");
+  });
+
+  server.on("/L", []() {
+    ArduinoSerial.write('L');
+    server.send(200, "text/html", "<p>좌회전</p><a href='/'>뒤로</a>");
+  });
+
+  server.on("/R", []() {
+    ArduinoSerial.write('R');
+    server.send(200, "text/html", "<p>우회전</p><a href='/'>뒤로</a>");
+  });
+
+  server.on("/S", []() {
+    ArduinoSerial.write('S');
+    server.send(200, "text/html", "<p>정지</p><a href='/'>뒤로</a>");
+  });
+
+  server.begin();
+  Serial.println("웹서버 시작됨!");
+}
+
+void loop() {
+  server.handleClient(); // 웹 요청 처리
+}
