@@ -1,0 +1,166 @@
+// 초음파 센서와 부저를 이용하여 장애물의 거리에 따라 소리를 달리하는 초음파 피아노를 구현
+
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+// 핀 정의
+#define BUZZER 13
+#define ULTRASONIC_TRIG 12
+#define ULTRASONIC_ECHO 7
+#define MOTOR_LEFT_1 5
+#define MOTOR_LEFT_2 6
+#define MOTOR_RIGHT_1 3
+#define MOTOR_RIGHT_2 11
+
+// OLED 설정
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// PWM 속도 설정
+#define SPEED_LEFT 100
+#define SPEED_RIGHT 100
+
+char command = 'S';  // 기본 명령은 정지
+long duration;
+int distance;
+String noteName = "";
+int noteFreq = 0;
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(BUZZER, OUTPUT);
+  pinMode(ULTRASONIC_TRIG, OUTPUT);
+  pinMode(ULTRASONIC_ECHO, INPUT);
+  pinMode(MOTOR_LEFT_1, OUTPUT);
+  pinMode(MOTOR_LEFT_2, OUTPUT);
+  pinMode(MOTOR_RIGHT_1, OUTPUT);
+  pinMode(MOTOR_RIGHT_2, OUTPUT);
+
+  // OLED 초기화
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED 초기화 실패");
+    while (true);
+  }
+
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 10);
+  display.println("초기화 완료");
+  display.display();
+
+  delay(2000);
+  stopMotors();
+}
+
+void loop() {
+  // 블루투스 명령 처리
+  if (Serial.available()) {
+    char temp = Serial.read();
+    if (temp == 'F' || temp == 'B' || temp == 'L' || temp == 'R' || temp == 'S') {
+      command = temp;
+    }
+  }
+
+  // 명령에 따라 모터 제어
+  switch (command) {
+    case 'F': moveForward(); break;
+    case 'B': moveBackward(); break;
+    case 'L': turnLeft(); break;
+    case 'R': turnRight(); break;
+    case 'S': stopMotors(); break;
+  }
+
+  // 거리 측정
+  distance = getDistance();
+
+  // 거리 구간에 따라 음계 설정
+  if (distance <= 10) {
+    noteFreq = 262; noteName = "도 (C)";
+  } else if (distance <= 20) {
+    noteFreq = 294; noteName = "레 (D)";
+  } else if (distance <= 30) {
+    noteFreq = 330; noteName = "미 (E)";
+  } else if (distance <= 40) {
+    noteFreq = 349; noteName = "파 (F)";
+  } else if (distance <= 50) {
+    noteFreq = 392; noteName = "솔 (G)";
+  } else {
+    noteFreq = 0; noteName = "무음";
+  }
+
+  // 부저 출력
+  if (noteFreq > 0) {
+    tone(BUZZER, noteFreq);
+  } else {
+    noTone(BUZZER);
+  }
+
+  // OLED에 거리와 음계 출력
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("거리: ");
+  display.print(distance);
+  display.println(" cm");
+
+  display.print("음계: ");
+  display.println(noteName);
+  display.display();
+
+  // 가까이 있으면 경고음만 울림
+  if (distance > 0 && distance < 30) {
+    alertSound();
+  }
+
+  delay(100);
+}
+
+// 모터 제어 함수들
+void moveForward() {
+  analogWrite(MOTOR_LEFT_1, SPEED_LEFT); analogWrite(MOTOR_LEFT_2, 0);
+  analogWrite(MOTOR_RIGHT_1, 0); analogWrite(MOTOR_RIGHT_2, SPEED_RIGHT);
+}
+
+void moveBackward() {
+  analogWrite(MOTOR_LEFT_1, 0); analogWrite(MOTOR_LEFT_2, SPEED_LEFT);
+  analogWrite(MOTOR_RIGHT_1, SPEED_RIGHT); analogWrite(MOTOR_RIGHT_2, 0);
+}
+
+void turnLeft() {
+  analogWrite(MOTOR_LEFT_1, 0); analogWrite(MOTOR_LEFT_2, SPEED_LEFT);
+  analogWrite(MOTOR_RIGHT_1, 0); analogWrite(MOTOR_RIGHT_2, SPEED_RIGHT);
+}
+
+void turnRight() {
+  analogWrite(MOTOR_LEFT_1, SPEED_LEFT); analogWrite(MOTOR_LEFT_2, 0);
+  analogWrite(MOTOR_RIGHT_1, SPEED_RIGHT); analogWrite(MOTOR_RIGHT_2, 0);
+}
+
+void stopMotors() {
+  analogWrite(MOTOR_LEFT_1, 0); analogWrite(MOTOR_LEFT_2, 0);
+  analogWrite(MOTOR_RIGHT_1, 0); analogWrite(MOTOR_RIGHT_2, 0);
+}
+
+// 초음파 거리 측정
+int getDistance() {
+  digitalWrite(ULTRASONIC_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(ULTRASONIC_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ULTRASONIC_TRIG, LOW);
+
+  duration = pulseIn(ULTRASONIC_ECHO, HIGH, 30000);
+  return duration * 0.034 / 2;
+}
+
+// 경고음만 울림 (서보 제거됨)
+void alertSound() {
+  tone(BUZZER, 1000, 300);  // 짧은 경고음
+  delay(500);
+}
+
