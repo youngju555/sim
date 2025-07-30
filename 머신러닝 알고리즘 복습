@@ -1,0 +1,12 @@
+인공지능 > 머신러닝 > 딥러닝
+
+머신러닝 알고리즘 
+====
+1. supervised learing  ( 정답 데이터가 존재하는 상황에서 학습하는 알고리즘) > 어떤 값에 대한 예측을 수행
+  Hyponthesis(가설)
+  H(x) = Wx + b 
+  y = ax + b      >> H(x)와 y는 다른 개념.
+  cost function  ==  H(x) - y. 거리의 최솟값을 구하는 것.  단순히 이렇게 하면 동일한 최솟값을 가진 방정식이 두 개 존재할 수 있으므로 최솟값을 구하기 위해 제곱을 이용함.
+                 == 
+2. unsupervised learning ( 입력 데이터만을 이용해서 학습하는 알고리즘) > 숨겨진 특징을 찾아냄
+3. reinforcement learing
