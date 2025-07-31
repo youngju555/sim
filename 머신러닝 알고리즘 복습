@@ -14,6 +14,11 @@
                  
   3) cost fuction minimize
      방법1 :  Gradient Descent (경사 하강법)
-
+            오차 함수의 **기울기(미분)**를 이용해서,가중치와 편향을 반복적으로 조정하여 오차를 최소화하는 알고리즘.
+  4) multivariable
+    Hypothesis using matrix 
+    (x1,x2,x3) * (w1)              
+                 (w2)        >> x의 행은 x값의 샘플의 수, x의 열은 x의 변수의 개수, w는 가중치
+                 (w3)    
 2. unsupervised learning ( 입력 데이터만을 이용해서 학습하는 알고리즘) > 숨겨진 특징을 찾아냄
 3. reinforcement learing
