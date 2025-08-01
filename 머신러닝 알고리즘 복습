@@ -15,7 +15,7 @@
   3) cost fuction minimize
      방법1 :  Gradient Descent (경사 하강법)
             오차 함수의 **기울기(미분)**를 이용해서,가중치와 편향을 반복적으로 조정하여 오차를 최소화하는 알고리즘.
-  4) multivariable
+  4) multivariable  >>> x가 여러 개 인 것.
     Hypothesis using matrix 
     (x1,x2,x3) * (w1)              
                  (w2)        >> x의 행은 x값의 샘플의 수, x의 열은 x의 변수의 개수, w는 가중치
@@ -26,6 +26,9 @@
      로지스틱 회귀에서는 예측값이 항상 0과 1 사이여야 한다.
      그래야 확률로 해석할 수 있음.
      이를 위해 선형 모델 H(x)=Wx+b의 결과를 시그모이드 함수에 넣는다.
+  ----- regression 은 단순히 함수의 그래프를 보여주는 것이고 classification은 그걸 이용하는 것. -----
+  6) bynomial classification = y의 값이 0 또는 1로 정의되는 것.
+  7) multinomial classification = y의 값이 여러 개인 것.
 
 2. unsupervised learning ( 입력 데이터만을 이용해서 학습하는 알고리즘) > 숨겨진 특징을 찾아냄
 3. reinforcement learing
