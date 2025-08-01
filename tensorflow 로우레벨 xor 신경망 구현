@@ -1,0 +1,69 @@
+로우레벨 XOR 신경망 구현 (1은닉층, 1출력층, 시그모이드)
+python
+복사
+편집
+import numpy as np
+
+# 시그모이드 함수 & 그 도함수
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+
+def sigmoid_deriv(x):
+    return sigmoid(x) * (1 - sigmoid(x))
+
+# 데이터 (XOR)
+x_data = np.array([[0, 0],
+                   [0, 1],
+                   [1, 0],
+                   [1, 1]])  # shape: (4, 2)
+y_data = np.array([[0], [1], [1], [0]])     # shape: (4, 1)
+
+# 랜덤 시드 고정
+np.random.seed(42)
+
+# 가중치 초기화
+W1 = np.random.randn(2, 2)   # (입력2 → 은닉2)
+b1 = np.zeros((1, 2))        # 은닉층 바이어스
+
+W2 = np.random.randn(2, 1)   # (은닉2 → 출력1)
+b2 = np.zeros((1, 1))        # 출력층 바이어스
+
+# 하이퍼파라미터
+learning_rate = 0.1
+epochs = 10000
+
+# 학습 반복
+for epoch in range(epochs):
+    # --- Forward ---
+    z1 = np.dot(x_data, W1) + b1     # (4,2)
+    a1 = sigmoid(z1)                 # 은닉층 활성화값
+
+    z2 = np.dot(a1, W2) + b2         # (4,1)
+    a2 = sigmoid(z2)                 # 출력값
+
+    # --- Loss (Binary Cross Entropy) ---
+    loss = -np.mean(y_data * np.log(a2 + 1e-8) + (1 - y_data) * np.log(1 - a2 + 1e-8))
+
+    # --- Backpropagation ---
+    dz2 = a2 - y_data                    # (4,1)
+    dW2 = np.dot(a1.T, dz2) / 4         # (2,1)
+    db2 = np.sum(dz2, axis=0, keepdims=True) / 4
+
+    dz1 = np.dot(dz2, W2.T) * sigmoid_deriv(z1)  # (4,2)
+    dW1 = np.dot(x_data.T, dz1) / 4              # (2,2)
+    db1 = np.sum(dz1, axis=0, keepdims=True) / 4
+
+    # --- Gradient Descent ---
+    W2 -= learning_rate * dW2
+    b2 -= learning_rate * db2
+    W1 -= learning_rate * dW1
+    b1 -= learning_rate * db1
+
+    # --- 출력 ---
+    if epoch % 1000 == 0:
+        print(f"Epoch {epoch}, Loss: {loss:.4f}")
+
+# --- 학습 후 결과 ---
+print("\n🔍 최종 예측 결과:")
+a2_final = sigmoid(np.dot(sigmoid(np.dot(x_data, W1) + b1), W2) + b2)
+print(np.round(a2_final, 4))
