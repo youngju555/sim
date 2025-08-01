@@ -1,3 +1,4 @@
+<numpy>
 로우레벨 XOR 신경망 구현 (1은닉층, 1출력층, 시그모이드)
 python
 복사
@@ -62,6 +63,66 @@ for epoch in range(epochs):
     # --- 출력 ---
     if epoch % 1000 == 0:
         print(f"Epoch {epoch}, Loss: {loss:.4f}")
+
+<tensorflow and numpy>_______________________________________________________________________________________________________________________
+
+import tensorflow as tf
+import numpy as np
+
+# 데이터 (XOR 문제)
+x_data = np.array([[0, 0],
+                   [0, 1],
+                   [1, 0],
+                   [1, 1]], dtype=np.float32)  # (4, 2)
+y_data = np.array([[0], [1], [1], [0]], dtype=np.float32)  # (4, 1)
+
+# 변수 (가중치 & 바이어스) 정의
+W1 = tf.Variable(tf.random.normal([2, 2]))
+b1 = tf.Variable(tf.zeros([2]))
+
+W2 = tf.Variable(tf.random.normal([2, 1]))
+b2 = tf.Variable(tf.zeros([1]))
+
+# 시그모이드 함수
+def sigmoid(x):
+    return 1 / (1 + tf.exp(-x))
+
+# 손실 함수 (Binary Cross-Entropy)
+def loss_fn(y_pred, y_true):
+    return tf.reduce_mean(-y_true * tf.math.log(y_pred + 1e-7) - (1 - y_true) * tf.math.log(1 - y_pred + 1e-7))
+
+# 학습률 및 옵티마이저
+learning_rate = 0.1
+optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
+
+# 학습
+for epoch in range(10001):
+    with tf.GradientTape() as tape:
+        # Forward pass
+        z1 = tf.matmul(x_data, W1) + b1      # 은닉층 선형 연산
+        a1 = sigmoid(z1)                     # 은닉층 출력
+
+        z2 = tf.matmul(a1, W2) + b2          # 출력층 선형 연산
+        y_pred = sigmoid(z2)                 # 최종 출력
+
+        loss = loss_fn(y_pred, y_data)
+
+    # Gradient 계산 및 적용
+    gradients = tape.gradient(loss, [W1, b1, W2, b2])
+    optimizer.apply_gradients(zip(gradients, [W1, b1, W2, b2]))
+
+    # 출력 (1000마다)
+    if epoch % 1000 == 0:
+        print(f"Epoch {epoch:5d}: Loss = {loss.numpy():.5f}")
+
+# 예측 출력
+z1 = tf.matmul(x_data, W1) + b1
+a1 = sigmoid(z1)
+z2 = tf.matmul(a1, W2) + b2
+y_pred = sigmoid(z2)
+
+print("\n🔍 예측 결과:")
+print(tf.round(y_pred).numpy())
 
 # --- 학습 후 결과 ---
 print("\n🔍 최종 예측 결과:")
