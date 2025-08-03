@@ -29,6 +29,11 @@
   ----- regression 은 단순히 함수의 그래프를 보여주는 것이고 classification은 그걸 이용하는 것. -----
   6) bynomial classification = y의 값이 0 또는 1로 정의되는 것.
   7) multinomial classification = y의 값이 여러 개인 것.
+    - learning rate 가 너무 높으면 이상한 fitting이 될 수 있고 너무 낮으면 목표 minimze에 다다르지 못할 수 있음.
+  8) 과적합 = 모델이 학습 데이터에 지나치게 맞춰져서(암기하듯) 새로운 데이터에 대한 일반화 성능이 떨어지는 현상
+     해결책 = More training data, Reduce the number of features, Regularization(모델이 배우는 숫자(가중치)가 너무 커지면 복잡해져서 외우게 됨.
+            정규화는 그 숫자들이 너무 커지지 않도록 벌점(페널티)을 줌.
+  9) Evaluation using training set = 훈련이 잘 될 수 있도록 training, validation, testing set으로 나누어서 테스트함.
 
 2. unsupervised learning ( 입력 데이터만을 이용해서 학습하는 알고리즘) > 숨겨진 특징을 찾아냄
 3. reinforcement learing
