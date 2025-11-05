@@ -154,7 +154,7 @@ def yolo_process_thread(stop_event, frame_queue, model):
             if stable_frames >= 3: # 3프레임 연속 감지 시 "확정"
                 x1, y1, x2, y2 = boxes[0]
                 cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
-                distance_cm = 30.0 # 임시 고정거리
+                distance_cm = 19.0 # 임시 고정거리
 
                 print(f"🎯 YOLO 객체 중심: ({cx}, {cy})")
                 h, w, _ = frame.shape
