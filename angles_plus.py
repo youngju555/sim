@@ -2,13 +2,7 @@
 """
 MyCobot 320 M5 (pymycobot)
 [개선 버전 v5.11.1 - YOLO + 회전각 보정 + Z축 높이 보정]
-
-📌 v5.11 대비 핵심 변경점
-----------------------------------------------------
-1. (로직) 로봇 스레드의 Z축 높이 값을 v8.0 코드 기준으로 수정
-   - Z_APPROACH = 300.0
-   - Z_GRASP    = 300.0
-   - Z_LIFT     = 360.0
+(핸드셰이크 ACK 이벤트 추가판)
 """
 
 import threading
@@ -38,6 +32,9 @@ args = None  # argparse 결과
 e_robot_task_ready = threading.Event()  # YOLO -> Robot "물건 찾았다, 출발해"
 e_robot_task_done = threading.Event()  # Robot -> YOLO "작업 끝났다, 다시 찾아도 돼"
 e_robot_task_done.set()  # 초기 상태는 "작업 완료" (즉시 탐지 시작 가능)
+
+# [v5.12 추가] 로봇이 YOLO의 ready 신호를 수신(ack)했음을 알리는 Event
+e_robot_ack_received = threading.Event()
 
 # [v5.9] 스레드 간 프레임 전달용 Queue
 frame_queue = queue.Queue(maxsize=1)
@@ -73,7 +70,6 @@ COLOR_RANGES = {
     "green": ([35, 80, 40], [85, 255, 255]),
     "blue": ([90, 80, 70], [130, 255, 255]),
     "yellow": ([20, 100, 100], [35, 255, 255]),
-    # 필요시 2번째 빨간색 범위 추가 (HSV는 원형이므로)
     "red2": ([170, 120, 70], [180, 255, 255])
 }
 
@@ -106,7 +102,6 @@ def pixel_to_robot(cx, cy, distance_cm, frame_w, frame_h):
 # 4. [신규 v5.9] 카메라 '읽기' 스레드 (초고속 영상 수급)
 # ---------------------------------------------------------------------------
 def camera_read_thread(stop_event, cap, frame_queue):
-    # (v5.9와 동일)
     print("📷 카메라 '읽기' 스레드 시작")
     while not stop_event.is_set():
         ret, frame = cap.read()
@@ -225,8 +220,18 @@ def yolo_process_thread(stop_event, frame_queue, model):
                     # [v5.11] 좌표, 클래스 ID, 각도를 함께 저장
                     g_target_object = {"coord": coord, "class_id": class_id, "angle": angle}
                 
-                e_robot_task_ready.set()  # 로봇 스레드에게 "출발 신호"
+                # --- [v5.12 변경: ACK 핸드셰이크 추가] ---
+                e_robot_task_ready.set()   # 로봇 스레드에게 "출발 신호"
                 e_robot_task_done.clear()  # "탐지 임무 완료, 로봇 끝날 때까지 대기"
+
+                # 로봇이 신호를 수신(ACK)할 때까지 잠깐 대기 (타임아웃으로 무한 대기 방지)
+                if not e_robot_ack_received.wait(timeout=1.0):
+                    print("⚠️ 로봇 응답 지연 - YOLO: ACK 타임아웃 (1.0s)")
+                else:
+                    print("🤝 로봇이 YOLO 신호 수신(ACK) 확인")
+                e_robot_ack_received.clear()  # 다음 라운드를 위해 초기화
+                # --- [ACK 핸드셰이크 종료] ---
+
                 stable_frames = 0
         else:
             stable_frames = 0
@@ -261,6 +266,11 @@ def robot_control_thread(stop_event, mc, dry_run):
         # e_robot_task_ready 신호가 올 때까지 무한정 대기 (Blocking)
         if not e_robot_task_ready.wait(timeout=0.5):
             continue # 0.5초마다 stop_event 체크
+
+        # --- [v5.12 변경: YOLO에게 ACK 전송] ---
+        # YOLO가 보낸 ready 신호를 수신했음을 알려줌 (즉시 ACK)
+        e_robot_ack_received.set()
+        # --- [ACK 전송 완료] ---
 
         # 신호가 오면, 좌표와 클래스 ID, 각도를 가져와서 전체 시퀀스 실행
         current_task = None
@@ -306,7 +316,6 @@ def robot_control_thread(stop_event, mc, dry_run):
             PICK_RX, PICK_RY, PICK_RZ = -175.33, 8.65, 86.68 # 기본 RZ(Yaw) 자세
             
             # [!!! v5.11 수정 !!!] RZ(Yaw) 값에 계산된 각도 보정
-            # v8.0 코드의 yaw_offset = angle * 0.35 로직을 적용해봅니다. (환경에 따라 0.35는 1.0 또는 -1.0으로 조절)
             yaw_offset = angle * 0.35 
             corrected_rz = PICK_RZ + yaw_offset
             print(f"  ↳ RZ 보정: {corrected_rz:.2f} (기본: {PICK_RZ} + 오프셋: {yaw_offset:.2f} (각도: {angle:.2f}))")
@@ -318,28 +327,22 @@ def robot_control_thread(stop_event, mc, dry_run):
                 mc.set_gripper_value(50, 80, 1) # 그리퍼 열기
                 time.sleep(1)
                 
-                # [!!! v5.11 (Z축 수정) !!!] 
                 mc.send_coords([pick_x, pick_y, Z_APPROACH, PICK_RX, PICK_RY, corrected_rz], 25, 0) # mode=0 (각도)
                 time.sleep(3) # v8.0 기준 3초
                 
-                # [!!! v5.11 (Z축 수정) !!!] 
                 mc.send_coords([pick_x, pick_y, Z_GRASP, PICK_RX, PICK_RY, corrected_rz], 15, 0) # mode=0 (각도)
                 time.sleep(2) # v8.0 기준 2초
                 
                 mc.set_gripper_value(8, 20, 1) # 그리퍼 닫기 (v8.0 기준)
                 time.sleep(1.5)
                 
-                # [!!! v5.11 (Z축 수정) !!!]
                 mc.send_coords([pick_x, pick_y, Z_LIFT, PICK_RX, PICK_RY, corrected_rz], 15, 0) # mode=0 (각도)
                 time.sleep(1.5) # v8.0 기준 1.5초
                 
-                # --- [!!! v5.10 수정된 부분 !!!] ---
-                # (이 부분은 RZ가 고정된 pose 값이므로 각도 보정 안 함)
                 mc.send_coords(approach_pose, DEFAULT_SPEED, 1) # 예: Box1_up (선형)
                 time.sleep(3)
                 mc.send_coords(place_pose, DEFAULT_SPEED, 1) # 예: Box1 (선형)
                 time.sleep(3)
-                # --- [수정 완료] ---
                 
                 mc.set_gripper_state(0, 80) # 그리퍼 열기
                 time.sleep(1.5)
