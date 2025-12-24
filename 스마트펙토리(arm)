@@ -1,0 +1,401 @@
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from my_robot_interfaces.srv import ArmCommand
+from std_msgs.msg import Bool      
+from std_srvs.srv import Trigger   
+from pymycobot.mycobot320 import MyCobot320 
+import threading 
+import time
+import math
+import sys
+
+# ===================== [설정] =====================
+PORT = '/dev/ttyACM0'
+BAUD = 115200
+speed = 55
+high = 255
+POSE_WAIT = [-108.19, -37.17, 80.15, 40.81, -88.2, -19.07]
+
+# [기본] PICK_ORIENTATION (가까울 때 기준)
+PICK_ORIENTATION_RX = -170
+PICK_ORIENTATION_RY = -1.88
+
+BOX_BASE_POSE = [-255.5, 43.4, 130.7, 177.43, 3.33, -0.89]
+BOX_OFFSET_Y = -65.0 
+
+# 충돌 감지 임계값 (mA)
+COLLISION_THRESHOLD = 2500 
+
+class ArmDriverNode(Node):
+    def __init__(self):
+        super().__init__('arm_driver_node')
+        try:
+            self.mc = MyCobot320(PORT, BAUD)
+            time.sleep(0.5)
+            self.mc.power_on()
+            time.sleep(0.5)
+            self.get_logger().info(f'✅ MyCobot320 Connected on {PORT}')
+        except Exception as e:
+            self.get_logger().error(f'❌ Connection Failed: {e}')
+            return
+
+        self.mutex = threading.Lock()
+        
+        # [Service] 로봇 동작 명령
+        self.srv = self.create_service(ArmCommand, '/arm/execute_cmd', self.handle_command)
+        
+        # [NEW] 안전 관련 구독 및 서비스
+        self.fence_sub = self.create_subscription(Bool, '/fence_open', self.fence_callback, 10)
+        self.safety_reset_srv = self.create_service(Trigger, '/arm/safety_reset', self.handle_safety_reset)
+
+        # [NEW] 안전 플래그
+        self.is_fence_open = False       
+        self.is_waiting_for_code = False 
+        
+        self.pack_count = 0
+        self.mc.set_color(0, 255, 0)
+        
+        self.init_gripper_sequence()
+
+        # =========================================================================
+        # [NEW] 터미널 입력 감시 스레드 (엔터키 확인용)
+        # =========================================================================
+        self.input_thread = threading.Thread(target=self.terminal_input_server, daemon=True)
+        self.input_thread.start()
+        
+        print("\n" + "="*50)
+        print("📢 [터미널 조작 모드 활성화]")
+        print("   👉 [Enter] 키: 현재 상태(전압/전류/각도) 즉시 확인")
+        print("   👉 '1234' + [Enter]: 안전 잠금(펜스) 해제")
+        print("="*50 + "\n")
+
+    # [기능 1] 터미널 입력 처리 함수
+    def terminal_input_server(self):
+        while rclpy.ok():
+            try:
+                # 사용자 입력을 대기 (여기서 엔터를 칠 때까지 멈춰있음)
+                user_input = input().strip()
+                
+                if user_input == "":
+                    # 엔터만 쳤을 때 -> 상태 출력
+                    self.log_motor_status_to_terminal()
+                
+                elif user_input == "1234":
+                    # 안전 해제
+                    if self.is_fence_open:
+                        print("⚠️ 펜스가 아직 열려있습니다! 닫은 후 재시도하세요.")
+                    else:
+                        self.is_waiting_for_code = False
+                        print("✅ [OK] 안전 잠금 해제! 동작을 재개합니다.")
+                        
+            except EOFError:
+                break
+            except Exception as e:
+                print(f"입력 오류: {e}")
+
+    # 터미널 출력 전용 로그 함수
+    def log_motor_status_to_terminal(self):
+        try:
+            print("\n🔍 [실시간 상태 체크]")
+            volts = self.mc.get_servo_voltages()
+            currents = self.mc.get_servo_currents()
+            angles = self.mc.get_angles()
+            status = self.mc.get_servo_status()
+            
+            if status: 
+                self.get_logger().error(f"   👉 Servo Status (Error Code): {status}")
+            
+            if volts:
+                print(f"   ⚡ 전압(V) : {volts}")
+                if any(v < 22.0 for v in volts):
+                    print("      ⚠️ [경고] 전압 부족! 어댑터 확인 요망")
+            else:
+                print("   ⚡ 전압(V) : 통신 실패")
+
+            if currents:
+                print(f"   🔌 전류(mA): {currents}")
+            else:
+                print("   🔌 전류(mA): 통신 실패")
+
+            if angles:
+                print(f"   📐 각도(deg): {angles}")
+            
+            print("-" * 30)
+
+        except Exception as e:
+            print(f"❌ 상태 조회 실패: {e}")
+
+    # [NEW] 펜스 신호 콜백
+    def fence_callback(self, msg):
+        if msg.data: # True = 펜스 열림 (위험)
+            if not self.is_fence_open:
+                self.get_logger().fatal("🚨 [EMERGENCY] FENCE OPEN! Stopping Robot.")
+                self.mc.stop() 
+                self.is_fence_open = True
+                self.is_waiting_for_code = True 
+        else: # False = 펜스 닫힘
+            if self.is_fence_open:
+                self.get_logger().warn("🔒 Fence Closed. Waiting for code '1234' to resume...")
+                self.is_fence_open = False
+                
+    def handle_safety_reset(self, request, response):
+        if self.is_fence_open:
+            response.success = False
+            response.message = "Cannot reset while fence is still OPEN!"
+        else:
+            self.is_waiting_for_code = False
+            self.get_logger().info("✅ Safety Lock Released via Code. Resuming...")
+            response.success = True
+            response.message = "Resumed"
+        return response
+
+    def init_gripper_sequence(self):
+        try:
+            self.get_logger().info("🔧 Initializing Gripper...")
+            self.mc.set_gripper_mode(0)
+            self.mc.init_electric_gripper()
+            time.sleep(1.0)
+            self.get_logger().info("✅ Gripper Initialized")
+        except Exception as e:
+            self.get_logger().error(f"⚠️ Gripper Init Warning: {e}")
+
+    def log_motor_status(self):
+        # 기존 ROS 로그용 함수 (에러 발생 시 사용)
+        self.log_motor_status_to_terminal()
+
+    # [수정] 목표 도착 및 안전 정지 확인 함수
+    def wait_until_arrival(self, target, mode='coords', tol=5.0, timeout=15):
+        start = time.time()
+        last_values = None
+        stop_count = 0
+        was_paused = False
+
+        time.sleep(0.2) 
+
+        while time.time() - start < timeout:
+            # ================= 안전 정지 로직 =================
+            if self.is_fence_open or self.is_waiting_for_code:
+                if not was_paused:
+                    self.mc.stop()
+                    self.get_logger().warn("⏸️ Robot PAUSED (Safety Trigger). Waiting...")
+                    was_paused = True
+                time.sleep(0.5)
+                start += 0.5 
+                continue 
+            
+            if was_paused:
+                self.get_logger().info("▶️ Resuming Movement...")
+                if mode == 'coords':
+                    self.mc.send_coords(target, speed, 0)
+                else:
+                    self.mc.send_angles(target, speed)
+                was_paused = False
+                time.sleep(0.5)
+
+            # 1. 충돌 감지
+            try:
+                currents = self.mc.get_servo_currents()
+                if isinstance(currents, list) and len(currents) == 6:
+                    if max(currents) > COLLISION_THRESHOLD:
+                        self.mc.stop()
+                        raise RuntimeError(f"🚨 충돌 감지! (Current: {max(currents)}mA)")
+            except RuntimeError as re:
+                raise re
+            except Exception:
+                pass 
+
+            # 2. 현재값 읽기
+            try:
+                if mode == 'coords':
+                    current = self.mc.get_coords()
+                else:
+                    current = self.mc.get_angles()
+            except Exception:
+                continue
+
+            if not current or len(current) != 6:
+                continue
+
+            # 3. 목표 지점 도착 확인
+            diff = max([abs(c - t) for c, t in zip(current, target)])
+            if diff < tol:
+                return True 
+            
+            # 4. 움직임 정지 확인
+            if last_values:
+                move_diff = max([abs(c - l) for c, l in zip(current, last_values)])
+                if move_diff < 1.0: 
+                    stop_count += 1
+                else:
+                    stop_count = 0
+            
+            # =================================================================
+            # [기능 2] 오차가 너무 크면 실패 처리 (50.0 이상)
+            # =================================================================
+            if stop_count > 5:
+                # 멈췄는데 오차가 50이 넘으면 이건 도착이 아니라 사고임
+                if diff >= 50.0:
+                    err_msg = f"❌ [FATAL ERROR] 로봇 정지됨. 그러나 오차({diff:.1f})가 허용범위(50) 초과!"
+                    self.get_logger().fatal(err_msg)
+                    self.log_motor_status_to_terminal() # 즉시 상태 출력
+                    raise RuntimeError(err_msg) # 여기서 에러를 띄워 멈춤
+                
+                else:
+                    self.get_logger().warn(f"⚠️ 목표 오차({diff:.1f})가 있지만 허용범위(50) 이내라 진행함.")
+                    return True
+
+            last_values = current
+            time.sleep(0.1)
+        
+        # 타임아웃
+        err_msg = f"⏳ [TIMEOUT] 목표 도달 실패! (Mode: {mode}, Final Diff: {diff:.1f})"
+        self.get_logger().fatal(err_msg)
+        raise TimeoutError(err_msg)
+    
+    def handle_command(self, request, response):
+        with self.mutex:
+            # 출발 전 전압 검사
+            try:
+                volts = self.mc.get_servo_voltages()
+                if volts and any(v < 20.0 for v in volts):
+                    msg = f"❌ 전압 부족! (Current Volts: {volts})"
+                    self.get_logger().fatal(msg)
+                    response.success = False
+                    response.message = msg
+                    return response
+            except Exception:
+                pass 
+            
+            command = request.command
+            target = request.target_coord 
+            
+            self.get_logger().info(f"Command Received: {command}")
+            self.mc.set_color(0, 0, 255) 
+
+            try:
+                if command == "home":
+                    self.get_logger().info("🏠 Moving to WAIT Position...")
+                    self.mc.send_angles(POSE_WAIT, speed)
+                    self.wait_until_arrival(POSE_WAIT, mode='angles', tol=3.0)
+                    
+                    self.init_gripper_sequence()
+                    self.mc.set_gripper_value(100, 20, 1) 
+                    time.sleep(1.0) 
+
+                    self.mc.set_color(0, 255, 0)
+                    response.success = True
+                    response.message = "Robot Ready (WAIT)"
+                
+                elif command == "pick_good":
+                    x, y, raw_angle = target[0], target[1], target[2]
+                    
+                    # 각도 계산
+                    final_grip_yaw = (raw_angle + 45) % 90 - 45
+                    
+                    # [1단계] 상공 이동
+                    target_pose = [x, y, high, -175.0, 0, 0] 
+                    self.get_logger().info(f"🚀 [1] 위치 이동: {target_pose}")
+                    self.mc.send_coords(target_pose, speed, 0)
+                    self.wait_until_arrival(target_pose, mode='coords', tol=5.0)
+
+                    # [2단계] 회전
+                    self.get_logger().info(f"🔄 [2] 그리퍼 회전: {final_grip_yaw}도")
+                    self.mc.send_angle(6, final_grip_yaw, speed)
+                    time.sleep(0.5) 
+                    
+                    # [3단계] 하강
+                    current_coords = self.mc.get_coords()
+                    if not current_coords:
+                        descent_pose = [x, y, high - 40, -175, 0, 0]
+                    else:
+                        descent_pose = list(current_coords)
+                        descent_pose[2] = high - 40
+                    
+                    self.get_logger().info(f"⬇️ [3] 하강: {descent_pose}")
+                    self.mc.send_coords(descent_pose, speed, 0)
+                    self.wait_until_arrival(descent_pose, mode='coords', tol=5.0)
+
+                    # [4단계] 잡기
+                    self.get_logger().info("✊ 그리퍼 닫기")
+                    self.mc.set_gripper_value(30, 20, 1) 
+                    time.sleep(1.5)
+
+                    # [5단계] 상승 & 이동
+                    SAFE_Z_HEIGHT = high + 40
+                    waypoint = list(descent_pose)
+                    waypoint[0] *= 0.6
+                    waypoint[1] *= 0.6
+                    waypoint[2] = SAFE_Z_HEIGHT
+                    
+                    self.get_logger().info(f"↗️ 당겨서 올리기")
+                    self.mc.send_coords(waypoint, speed, 0)
+                    self.wait_until_arrival(waypoint, mode='coords', tol=10.0)
+
+                    # [6단계] 적재
+                    final_place_pose = list(BOX_BASE_POSE) 
+                    final_place_pose[1] = BOX_BASE_POSE[1] + (self.pack_count * BOX_OFFSET_Y)
+                    
+                    hover_place_pose = list(final_place_pose)
+                    hover_place_pose[2] = SAFE_Z_HEIGHT  
+                    
+                    self.get_logger().info("✈️ 적재 위치 상공")
+                    self.mc.send_coords(hover_place_pose, speed, 0)
+                    self.wait_until_arrival(hover_place_pose, mode='coords', tol=5.0)
+
+                    self.get_logger().info("⬇️ 박스 안으로 하강")
+                    self.mc.send_coords(final_place_pose, speed, 0)
+                    self.wait_until_arrival(final_place_pose, mode='coords', tol=5.0)
+                    
+                    # [7단계] 놓기
+                    self.mc.set_gripper_value(100, 20, 1) 
+                    time.sleep(1.0)
+                    
+                    self.get_logger().info("⬆️ 복귀 상승")
+                    self.mc.send_coords(hover_place_pose, speed, 0)
+                    self.wait_until_arrival(hover_place_pose, mode='coords', tol=5.0)
+
+                    self.pack_count += 1
+                    if self.pack_count >= 3:
+                        self.pack_count = 0 
+
+                    self.get_logger().info("🏠 홈으로 복귀")
+                    self.mc.send_angles(POSE_WAIT, speed)
+                    self.wait_until_arrival(POSE_WAIT, mode='angles', tol=3.0)
+
+                    response.success = True
+                    response.message = f"Done (Count: {self.pack_count})"
+
+                elif command == "discard_bad":
+                    response.success = True
+                    response.message = "Discarded"
+                
+                self.mc.set_color(0, 255, 0)
+
+            except Exception as e:
+                self.mc.set_color(255, 0, 0) 
+                response.success = False
+                response.message = str(e)
+                self.get_logger().fatal(f"🛑 작업 중단 및 진단: {e}")
+                self.log_motor_status_to_terminal()
+            
+            return response
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = ArmDriverNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if hasattr(node, 'mc'):
+            try:
+                node.mc.stop()
+            except Exception:
+                pass
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
