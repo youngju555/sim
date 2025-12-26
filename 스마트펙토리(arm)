@@ -25,7 +25,7 @@ BOX_BASE_POSE = [-255.5, 43.4, 130.7, 177.43, 3.33, -0.89]
 BOX_OFFSET_Y = -65.0 
 
 # 충돌 감지 임계값 (mA)
-COLLISION_THRESHOLD = 2500 
+COLLISION_THRESHOLD = 500 
 
 class ArmDriverNode(Node):
     def __init__(self):
