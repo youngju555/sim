@@ -51,7 +51,7 @@ CENTER_ROBOT_X = -42.0
 CENTER_ROBOT_Y = 225.0   
 FRAME_TIMEOUT_SEC = 1.0 
 
-# [천재 심영주 HSV 설정값] (툴 검증 완료)
+# (툴 검증 완료)
 HSV_LOWER_GREEN = np.array([51, 69, 69])
 HSV_UPPER_GREEN = np.array([95, 255, 255])
 
